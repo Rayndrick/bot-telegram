@@ -25,7 +25,28 @@ bot.on('message', async (msg) => {
   const text = msg.text;
 
   if (!text) return;
+if (text.toLowerCase() === "/total") {
 
+  const hoje = new Date();
+  const mes = hoje.getMonth() + 1;
+  const ano = hoje.getFullYear();
+
+  const { data, error } = await supabase
+    .from('despesas')
+    .select('valor')
+    .eq('mes', mes)
+    .eq('ano', ano);
+
+  if (error) {
+    bot.sendMessage(chatId, "Erro ao calcular total.");
+    return;
+  }
+
+  const total = data.reduce((acc, item) => acc + Number(item.valor), 0);
+
+  bot.sendMessage(chatId, `📊 Total do mês: R$ ${total.toFixed(2)}`);
+  return;
+}
   if (text.toLowerCase().startsWith("gastei")) {
 
     const partes = text.split(" ");
