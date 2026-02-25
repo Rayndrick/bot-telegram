@@ -1,31 +1,62 @@
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
 
 const token = process.env.TOKEN;
-const app = express();
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
 
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+const app = express();
 app.use(express.json());
 
 const bot = new TelegramBot(token);
 
-app.post('/webhook', (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
+bot.setWebHook(`${process.env.RENDER_EXTERNAL_URL}/webhook`);
+
+app.post('/webhook', async (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
 
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
 
-    if (text && text.toLowerCase().includes("gastei")) {
-        bot.sendMessage(chatId, "Despesa registrada ✅");
-    } else {
-        bot.sendMessage(chatId, "Envie algo como: Gastei 200 supermercado");
+  if (!text) return;
+
+  if (text.toLowerCase().startsWith("gastei")) {
+
+    const partes = text.split(" ");
+    const valor = parseFloat(partes[1]);
+    const descricao = partes.slice(2).join(" ");
+
+    if (isNaN(valor)) {
+      bot.sendMessage(chatId, "Valor inválido. Ex: Gastei 50 supermercado");
+      return;
     }
+
+    const { error } = await supabase
+      .from('despesas')
+      .insert([
+        { valor, descricao }
+      ]);
+
+    if (error) {
+      console.log(error);
+      bot.sendMessage(chatId, "Erro ao salvar despesa.");
+    } else {
+      bot.sendMessage(chatId, `💰 Registrado: R$ ${valor} - ${descricao}`);
+    }
+
+  } else {
+    bot.sendMessage(chatId, "Use: Gastei 50 supermercado");
+  }
 });
 
-app.get("/", (req, res) => {
-    res.send("Bot rodando");
+app.get('/', (req, res) => {
+  res.send("Bot rodando");
 });
 
 app.listen(process.env.PORT || 3000);
