@@ -36,6 +36,39 @@ bot.on('message', async (msg) => {
   const text = msg.text;
 
   if (!text) return;
+  // 📸 Se enviou foto
+if (msg.photo) {
+
+  const chatId = msg.chat.id;
+
+  try {
+
+    const photo = msg.photo[msg.photo.length - 1];
+    const fileId = photo.file_id;
+
+    const file = await bot.getFile(fileId);
+    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+
+    // OCR com Vision
+    const [result] = await visionClient.textDetection(fileUrl);
+    const detections = result.textAnnotations;
+
+    if (!detections || detections.length === 0) {
+      bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
+      return;
+    }
+
+    const textoExtraido = detections[0].description;
+
+    bot.sendMessage(chatId, `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`);
+
+  } catch (error) {
+    console.log(error);
+    bot.sendMessage(chatId, "Erro ao processar imagem.");
+  }
+
+  return;
+}
   if (text.toLowerCase() === "/listar") {
 
   const hoje = new Date();
