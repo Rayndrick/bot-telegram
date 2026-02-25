@@ -36,8 +36,7 @@ bot.on('message', async (msg) => {
 const text = msg.text;
 
 // 📸 Se enviou foto
-if (msg.photo && msg.photo.length > 0) {
-
+if (msg.photo) {
   try {
 
     const photo = msg.photo[msg.photo.length - 1];
@@ -45,6 +44,35 @@ if (msg.photo && msg.photo.length > 0) {
 
     const file = await bot.getFile(fileId);
     const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+
+    // Baixar imagem
+    const response = await fetch(fileUrl);
+    const buffer = await response.arrayBuffer();
+    const base64Image = Buffer.from(buffer).toString("base64");
+
+    // Enviar para Vision
+    const [result] = await visionClient.textDetection({
+      image: { content: base64Image }
+    });
+
+    const detections = result.textAnnotations;
+
+    if (!detections || detections.length === 0) {
+      await bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
+      return;
+    }
+
+    const textoExtraido = detections[0].description;
+
+    await bot.sendMessage(chatId, `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`);
+
+  } catch (error) {
+    console.log("ERRO VISION:", error);
+    await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
+  }
+
+  return;
+}
 
     // OCR com Vision
     const [result] = await visionClient.textDetection(fileUrl);
