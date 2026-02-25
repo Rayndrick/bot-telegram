@@ -40,22 +40,42 @@ const text = msg.text;
 if (msg.photo) {
   try {
 
-    const photo = msg.photo[msg.photo.length - 1];
-    const fileId = photo.file_id;
+  const photo = msg.photo[msg.photo.length - 1];
+  const fileId = photo.file_id;
 
-    const file = await bot.getFile(fileId);
-    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+  const file = await bot.getFile(fileId);
+  const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
-    // Baixar imagem
-    const response = await fetch(fileUrl);
-    const buffer = await response.arrayBuffer();
-    const base64Image = Buffer.from(buffer).toString("base64");
+  // Baixar imagem
+  const response = await fetch(fileUrl);
+  const buffer = await response.arrayBuffer();
+  const base64Image = Buffer.from(buffer).toString("base64");
 
-    // Enviar para Vision
-    const [result] = await visionClient.textDetection({
-      image: { content: base64Image }
- });
+  // Enviar para Vision
+  const [result] = await visionClient.textDetection({
+    image: { content: base64Image }
+  });
 
+  const detections = result.textAnnotations;
+
+  if (!detections || detections.length === 0) {
+    await bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
+    return;
+  }
+
+  const textoExtraido = detections[0].description;
+
+  await bot.sendMessage(
+    chatId,
+    `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`
+  );
+
+} catch (error) {
+  console.log("ERRO COMPLETO:", JSON.stringify(error, null, 2));
+  await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
+}
+
+return;
 const detections = result.textAnnotations;
 
 if (!detections || detections.length === 0) {
