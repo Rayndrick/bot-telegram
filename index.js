@@ -37,10 +37,21 @@ bot.on('message', async (msg) => {
       return;
     }
 
-   const { error } = await supabase
+ const hoje = new Date();
+const mes = hoje.getMonth() + 1;
+const ano = hoje.getFullYear();
+const data = hoje.toISOString().split('T')[0];
+
+const { error } = await supabase
   .from('despesas')
   .insert([
-    { valor, descricao }
+    { 
+      valor, 
+      descricao,
+      data,
+      mes,
+      ano
+    }
   ]);
 
     if (error) {
