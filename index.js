@@ -97,7 +97,6 @@ await bot.sendMessage(
 
 return;
 }
-
     // OCR com Vision
     const [result] = await visionClient.textDetection(fileUrl);
 
