@@ -1,12 +1,19 @@
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
+const { google } = require('googleapis');
 
 const token = process.env.TOKEN;
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+const auth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
+
+const sheets = google.sheets({ version: 'v4', auth });
 
 const app = express();
 app.use(express.json());
