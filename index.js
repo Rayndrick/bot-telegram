@@ -1,4 +1,6 @@
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = (...args) =>
+  import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
@@ -10,12 +12,14 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
 const sheets = google.sheets({ version: 'v4', auth });
+
 const visionClient = new vision.ImageAnnotatorClient({
   credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
 });
@@ -34,147 +38,116 @@ app.post('/webhook', async (req, res) => {
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
-const text = msg.text;
+  const text = msg.text;
 
-// 📸 Se enviou foto
-if (msg.photo) {
-  try {
+  // ==========================
+  // 📸 FOTO (OCR)
+  // ==========================
+  if (msg.photo) {
+    try {
+      const photo = msg.photo[msg.photo.length - 1];
+      const fileId = photo.file_id;
 
-  const photo = msg.photo[msg.photo.length - 1];
-  const fileId = photo.file_id;
+      const file = await bot.getFile(fileId);
+      const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
-  const file = await bot.getFile(fileId);
-  const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+      const response = await fetch(fileUrl);
+      const buffer = await response.arrayBuffer();
+      const base64Image = Buffer.from(buffer).toString("base64");
 
-  // Baixar imagem
-  const response = await fetch(fileUrl);
-  const buffer = await response.arrayBuffer();
-  const base64Image = Buffer.from(buffer).toString("base64");
+      const [result] = await visionClient.textDetection({
+        image: { content: base64Image },
+      });
 
-  // Enviar para Vision
-  const [result] = await visionClient.textDetection({
-    image: { content: base64Image }
-  });
+      const detections = result.textAnnotations;
 
-  const detections = result.textAnnotations;
+      if (!detections || detections.length === 0) {
+        await bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
+        return;
+      }
 
-  if (!detections || detections.length === 0) {
-    await bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
+      const textoExtraido = detections[0].description;
+
+      await bot.sendMessage(
+        chatId,
+        `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`
+      );
+
+    } catch (error) {
+      console.log("ERRO OCR:", error);
+      await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
+    }
+
     return;
   }
 
-  const textoExtraido = detections[0].description;
+  if (!text) return;
 
-  await bot.sendMessage(
-    chatId,
-    `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`
-  );
+  // ==========================
+  // 📋 LISTAR DESPESAS
+  // ==========================
+  if (text.toLowerCase() === "/listar") {
 
-} catch (error) {
-  console.log("ERRO COMPLETO:", JSON.stringify(error, null, 2));
-  await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
-}
+    const hoje = new Date();
+    const mes = hoje.getMonth() + 1;
+    const ano = hoje.getFullYear();
 
-return;
-const detections = result.textAnnotations;
+    const { data, error } = await supabase
+      .from('despesas')
+      .select('*')
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .order('data', { ascending: true });
 
-if (!detections || detections.length === 0) {
-  await bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
-  return;
-}
-
-const textoExtraido = detections[0].description;
-
-await bot.sendMessage(
-  chatId,
-  `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`
-);
-
-} catch (error) {
-  console.log("ERRO COMPLETO:", JSON.stringify(error, null, 2));
-  await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
-}
-
-return;
-}
-
-    if (!result || !result.textAnnotations || result.textAnnotations.length === 0) {
-      await bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
+    if (error) {
+      await bot.sendMessage(chatId, "Erro ao listar despesas.");
       return;
     }
 
-    const textoExtraido = result.textAnnotations[0].description;
+    if (!data || data.length === 0) {
+      await bot.sendMessage(chatId, "Nenhuma despesa registrada neste mês.");
+      return;
+    }
 
-    console.log("TEXTO EXTRAÍDO:", textoExtraido);
+    let mensagem = "📋 Despesas do mês:\n\n";
 
-    await bot.sendMessage(
-      chatId,
-      `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`
-    );
+    data.forEach(item => {
+      mensagem += `• ${item.data} - R$ ${Number(item.valor).toFixed(2)} - ${item.descricao}\n`;
+    });
 
-  } catch (error) {
-    console.error("ERRO OCR:", error);
-    await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
-  }
-
-  return;
-}
-
-if (!text) return;
-  if (text.toLowerCase() === "/listar") {
-
-  const hoje = new Date();
-  const mes = hoje.getMonth() + 1;
-  const ano = hoje.getFullYear();
-
-  const { data, error } = await supabase
-    .from('despesas')
-    .select('*')
-    .eq('mes', mes)
-    .eq('ano', ano)
-    .order('data', { ascending: true });
-
-  if (error) {
-    bot.sendMessage(chatId, "Erro ao listar despesas.");
+    await bot.sendMessage(chatId, mensagem);
     return;
   }
 
-  if (data.length === 0) {
-    bot.sendMessage(chatId, "Nenhuma despesa registrada neste mês.");
+  // ==========================
+  // 📊 TOTAL DO MÊS
+  // ==========================
+  if (text.toLowerCase() === "/total") {
+
+    const hoje = new Date();
+    const mes = hoje.getMonth() + 1;
+    const ano = hoje.getFullYear();
+
+    const { data, error } = await supabase
+      .from('despesas')
+      .select('valor')
+      .eq('mes', mes)
+      .eq('ano', ano);
+
+    if (error) {
+      await bot.sendMessage(chatId, "Erro ao calcular total.");
+      return;
+    }
+
+    const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
+
+    await bot.sendMessage(chatId, `📊 Total do mês: R$ ${total.toFixed(2)}`);
     return;
   }
 
-  let mensagem = "📋 Despesas do mês:\n\n";
-
-  data.forEach(item => {
-    mensagem += `• ${item.data} - R$ ${item.valor} - ${item.descricao}\n`;
-  });
-
-  bot.sendMessage(chatId, mensagem);
-  return;
-}
-if (text.toLowerCase() === "/total") {
-
-  const hoje = new Date();
-  const mes = hoje.getMonth() + 1;
-  const ano = hoje.getFullYear();
-
-  const { data, error } = await supabase
-    .from('despesas')
-    .select('valor')
-    .eq('mes', mes)
-    .eq('ano', ano);
-
-  if (error) {
-    bot.sendMessage(chatId, "Erro ao calcular total.");
-    return;
-  }
-
-  const total = data.reduce((acc, item) => acc + Number(item.valor), 0);
-
-  bot.sendMessage(chatId, `📊 Total do mês: R$ ${total.toFixed(2)}`);
-  return;
-}
+  // ==========================
+  // 💰 REGISTRAR DESPESA
+  // ==========================
   if (text.toLowerCase().startsWith("gastei")) {
 
     const partes = text.split(" ");
@@ -182,61 +155,46 @@ if (text.toLowerCase() === "/total") {
     const descricao = partes.slice(2).join(" ");
 
     if (isNaN(valor)) {
-      bot.sendMessage(chatId, "Valor inválido. Ex: Gastei 50 supermercado");
+      await bot.sendMessage(chatId, "Valor inválido. Ex: Gastei 50 supermercado");
       return;
     }
 
- const hoje = new Date();
-const mes = hoje.getMonth() + 1;
-const ano = hoje.getFullYear();
-const data = hoje.toISOString().split('T')[0];
+    const hoje = new Date();
+    const mes = hoje.getMonth() + 1;
+    const ano = hoje.getFullYear();
+    const data = hoje.toISOString().split('T')[0];
 
-const { error } = await supabase
-  .from('despesas')
-  .insert([
-    { 
-      valor, 
-      descricao,
-      data,
-      mes,
-      ano
-    }
-  ]);
+    const { error } = await supabase
+      .from('despesas')
+      .insert([{ valor, descricao, data, mes, ano }]);
 
     if (error) {
       console.log(error);
-      bot.sendMessage(chatId, "Erro ao salvar despesa.");
-    } else {
+      await bot.sendMessage(chatId, "Erro ao salvar despesa.");
+      return;
+    }
 
-  try {
+    try {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEET_ID,
+        range: "A:E",
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[data, valor, descricao, mes, ano]],
+        },
+      });
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "A:E",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[
-          data,
-          valor,
-          descricao,
-          mes,
-          ano
-        ]]
-      }
-    });
+      await bot.sendMessage(chatId, `💰 Registrado: R$ ${valor} - ${descricao}`);
 
-    bot.sendMessage(chatId, `💰 Registrado: R$ ${valor} - ${descricao}`);
+    } catch (sheetError) {
+      console.log(sheetError);
+      await bot.sendMessage(chatId, "Salvou no banco, mas erro ao enviar para planilha.");
+    }
 
-  } catch (sheetError) {
-    console.log(sheetError);
-    bot.sendMessage(chatId, "Salvou no banco, mas erro ao enviar para planilha.");
+    return;
   }
 
-}
-
-  } else {
-    bot.sendMessage(chatId, "Use: Gastei 50 supermercado");
-  }
+  await bot.sendMessage(chatId, "Use: Gastei 50 supermercado");
 });
 
 app.get('/', (req, res) => {
