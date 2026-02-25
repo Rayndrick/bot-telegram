@@ -32,41 +32,6 @@ bot.on('message', async (msg) => {
   const text = msg.text;
 
   if (!text) return;
-  // 📸 Se enviou foto
-if (msg.photo) {
-
-  const chatId = msg.chat.id;
-
-  const photo = msg.photo[msg.photo.length - 1];
-  const fileId = photo.file_id;
-
-  try {
-
-    const file = await bot.getFile(fileId);
-    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-
-    // Salva registro apenas com imagem
-    await supabase
-      .from('despesas')
-      .insert([
-        {
-          descricao: "Imagem enviada",
-          imagem_url: fileUrl,
-          mes: new Date().getMonth() + 1,
-          ano: new Date().getFullYear(),
-          data: new Date().toISOString().split('T')[0]
-        }
-      ]);
-
-    bot.sendMessage(chatId, "📸 Foto registrada com sucesso!");
-
-  } catch (error) {
-    console.log(error);
-    bot.sendMessage(chatId, "Erro ao processar foto.");
-  }
-
-  return;
-}
   if (text.toLowerCase() === "/listar") {
 
   const hoje = new Date();
