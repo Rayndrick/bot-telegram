@@ -1,3 +1,4 @@
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
@@ -66,10 +67,10 @@ if (msg.photo) {
 
     await bot.sendMessage(chatId, `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`);
 
-  } catch (error) {
-    console.log("ERRO VISION:", error);
-    await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
-  }
+ } catch (error) {
+  console.log("ERRO COMPLETO:", JSON.stringify(error, null, 2));
+  await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
+}
 
   return;
 }
