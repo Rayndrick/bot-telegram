@@ -25,6 +25,38 @@ bot.on('message', async (msg) => {
   const text = msg.text;
 
   if (!text) return;
+  if (text.toLowerCase() === "/listar") {
+
+  const hoje = new Date();
+  const mes = hoje.getMonth() + 1;
+  const ano = hoje.getFullYear();
+
+  const { data, error } = await supabase
+    .from('despesas')
+    .select('*')
+    .eq('mes', mes)
+    .eq('ano', ano)
+    .order('data', { ascending: true });
+
+  if (error) {
+    bot.sendMessage(chatId, "Erro ao listar despesas.");
+    return;
+  }
+
+  if (data.length === 0) {
+    bot.sendMessage(chatId, "Nenhuma despesa registrada neste mês.");
+    return;
+  }
+
+  let mensagem = "📋 Despesas do mês:\n\n";
+
+  data.forEach(item => {
+    mensagem += `• ${item.data} - R$ ${item.valor} - ${item.descricao}\n`;
+  });
+
+  bot.sendMessage(chatId, mensagem);
+  return;
+}
 if (text.toLowerCase() === "/total") {
 
   const hoje = new Date();
