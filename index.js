@@ -97,8 +97,6 @@ await bot.sendMessage(
 
 return;
 }
-    // OCR com Vision
-    const [result] = await visionClient.textDetection(fileUrl);
 
     if (!result || !result.textAnnotations || result.textAnnotations.length === 0) {
       await bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
