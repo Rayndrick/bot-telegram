@@ -33,13 +33,10 @@ app.post('/webhook', async (req, res) => {
 
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
-  const text = msg.text;
+const text = msg.text;
 
-  if (!text) return;
-  // 📸 Se enviou foto
-if (msg.photo) {
-
-  const chatId = msg.chat.id;
+// 📸 Se enviou foto
+if (msg.photo && msg.photo.length > 0) {
 
   try {
 
@@ -51,24 +48,30 @@ if (msg.photo) {
 
     // OCR com Vision
     const [result] = await visionClient.textDetection(fileUrl);
-    const detections = result.textAnnotations;
 
-    if (!detections || detections.length === 0) {
-      bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
+    if (!result || !result.textAnnotations || result.textAnnotations.length === 0) {
+      await bot.sendMessage(chatId, "❌ Não consegui identificar texto na imagem.");
       return;
     }
 
-    const textoExtraido = detections[0].description;
+    const textoExtraido = result.textAnnotations[0].description;
 
-    bot.sendMessage(chatId, `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`);
+    console.log("TEXTO EXTRAÍDO:", textoExtraido);
+
+    await bot.sendMessage(
+      chatId,
+      `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`
+    );
 
   } catch (error) {
-    console.log(error);
-    bot.sendMessage(chatId, "Erro ao processar imagem.");
+    console.error("ERRO OCR:", error);
+    await bot.sendMessage(chatId, "❌ Erro ao processar imagem.");
   }
 
   return;
 }
+
+if (!text) return;
   if (text.toLowerCase() === "/listar") {
 
   const hoje = new Date();
