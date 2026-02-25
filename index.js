@@ -54,7 +54,7 @@ if (msg.photo) {
     // Enviar para Vision
     const [result] = await visionClient.textDetection({
       image: { content: base64Image }
-    });
+ });
 
 const detections = result.textAnnotations;
 
