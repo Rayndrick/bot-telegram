@@ -37,11 +37,11 @@ bot.on('message', async (msg) => {
       return;
     }
 
-    const { error } = await supabase
-      .from('despesas')
-      .insert([
-        { valor, descricao }
-      ]);
+   const { error } = await supabase
+  .from('despesas')
+  .insert([
+    { valor, descricao }
+  ]);
 
     if (error) {
       console.log(error);
