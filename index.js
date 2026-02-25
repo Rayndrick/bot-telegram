@@ -2,6 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const { google } = require('googleapis');
+const vision = require('@google-cloud/vision');
 
 const token = process.env.TOKEN;
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -14,6 +15,9 @@ const auth = new google.auth.GoogleAuth({
 });
 
 const sheets = google.sheets({ version: 'v4', auth });
+const visionClient = new vision.ImageAnnotatorClient({
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+});
 
 const app = express();
 app.use(express.json());
