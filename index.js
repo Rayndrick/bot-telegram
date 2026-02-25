@@ -8,11 +8,7 @@ app.use(express.json());
 
 const bot = new TelegramBot(token);
 
-const url = process.env.RENDER_EXTERNAL_URL;
-
-bot.setWebHook(`${url}/bot${token}`);
-
-app.post(`/bot${token}`, (req, res) => {
+app.post('/webhook', (req, res) => {
     bot.processUpdate(req.body);
     res.sendStatus(200);
 });
