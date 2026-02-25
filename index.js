@@ -2,7 +2,21 @@ const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 
 const token = process.env.TOKEN;
-const bot = new TelegramBot(token, { polling: true });
+const app = express();
+
+app.use(express.json());
+
+const bot = new TelegramBot(token);
+
+const url = process.env.RENDER_EXTERNAL_URL;
+
+bot.setWebHook(`${url}/bot${token}`);
+
+app.post(`/bot${token}`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+});
+
 bot.on('message', (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
@@ -14,6 +28,8 @@ bot.on('message', (msg) => {
     }
 });
 
-const app = express();
-app.get("/", (req, res) => res.send("Bot rodando"));
+app.get("/", (req, res) => {
+    res.send("Bot rodando");
+});
+
 app.listen(process.env.PORT || 3000);
