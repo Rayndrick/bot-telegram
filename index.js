@@ -111,8 +111,32 @@ const { error } = await supabase
       console.log(error);
       bot.sendMessage(chatId, "Erro ao salvar despesa.");
     } else {
-      bot.sendMessage(chatId, `💰 Registrado: R$ ${valor} - ${descricao}`);
-    }
+
+  try {
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "A:E",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[
+          data,
+          valor,
+          descricao,
+          mes,
+          ano
+        ]]
+      }
+    });
+
+    bot.sendMessage(chatId, `💰 Registrado: R$ ${valor} - ${descricao}`);
+
+  } catch (sheetError) {
+    console.log(sheetError);
+    bot.sendMessage(chatId, "Salvou no banco, mas erro ao enviar para planilha.");
+  }
+
+}
 
   } else {
     bot.sendMessage(chatId, "Use: Gastei 50 supermercado");
