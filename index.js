@@ -42,9 +42,9 @@ bot.on('message', async (msg) => {
   // ==========================
   if (text && (text.toLowerCase() === "/ajuda" || text.toLowerCase() === "ajuda")) {
     await bot.sendMessage(chatId,
-`📌 Comandos disponíveis:
+`📌 Comandos:
 
-📸 Envie foto da nota → Registro automático
+📸 Envie foto → Registro automático
 💰 Gastei 50 mercado → Registro manual
 
 📊 /total → Total mês atual
@@ -56,6 +56,42 @@ bot.on('message', async (msg) => {
 
 📋 /listar → Lista mês atual`
     );
+    return;
+  }
+
+  // ==========================
+  // REGISTRO MANUAL
+  // ==========================
+  if (text && text.toLowerCase().startsWith("gastei")) {
+
+    const partes = text.split(" ");
+    const valor = parseFloat(partes[1]);
+    const descricao = partes.slice(2).join(" ");
+
+    if (isNaN(valor)) {
+      await bot.sendMessage(chatId, "Use: Gastei 50 mercado");
+      return;
+    }
+
+    const hoje = new Date();
+    const mes = hoje.getMonth() + 1;
+    const ano = hoje.getFullYear();
+    const data = hoje.toISOString().split("T")[0];
+
+    let categoria = "Outros";
+    const descLower = descricao.toLowerCase();
+
+    if (descLower.includes("burger") || descLower.includes("rest")) categoria = "Restaurante";
+    if (descLower.includes("mercado")) categoria = "Supermercado";
+
+    await supabase.from('despesas').insert([
+      { valor, descricao, data, mes, ano, categoria }
+    ]);
+
+    await bot.sendMessage(chatId,
+      `✅ Registrado:\n\n🏪 ${descricao}\n💰 R$ ${valor.toFixed(2)}\n📂 ${categoria}`
+    );
+
     return;
   }
 
@@ -81,12 +117,11 @@ bot.on('message', async (msg) => {
   }
 
   // ==========================
-  // TOTAL POR MÊS ESPECÍFICO
+  // TOTAL MÊS ESPECÍFICO
   // ==========================
   if (text && text.toLowerCase().startsWith("/mes")) {
 
     const partes = text.split(" ");
-
     if (partes.length < 3) {
       await bot.sendMessage(chatId, "Use: /mes 2 2026");
       return;
@@ -104,14 +139,14 @@ bot.on('message', async (msg) => {
     const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
 
     await bot.sendMessage(chatId,
-      `📆 Total ${mesEscolhido}/${anoEscolhido}: R$ ${total.toFixed(2)}`
+      `📆 ${mesEscolhido}/${anoEscolhido}: R$ ${total.toFixed(2)}`
     );
 
     return;
   }
 
   // ==========================
-  // RESUMO CATEGORIAS MÊS ATUAL
+  // RESUMO CATEGORIAS
   // ==========================
   if (text && text.toLowerCase() === "/categorias") {
 
@@ -137,8 +172,7 @@ bot.on('message', async (msg) => {
       resumo[item.categoria] += Number(item.valor);
     });
 
-    let mensagem = "📂 Gastos por categoria:\n\n";
-
+    let mensagem = "📂 Categorias:\n\n";
     for (let cat in resumo) {
       mensagem += `• ${cat}: R$ ${resumo[cat].toFixed(2)}\n`;
     }
@@ -189,6 +223,9 @@ bot.on('message', async (msg) => {
     return;
   }
 
+  // ==========================
+  // FALLBACK
+  // ==========================
   await bot.sendMessage(chatId, "Digite /ajuda para ver os comandos disponíveis.");
 });
 
