@@ -1,15 +1,17 @@
-console.log("🔥 TESTE SUPABASE CARREGADO 🔥");
+console.log("📊 TESTE PLANILHA CARREGADO 📊");
 
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
+const { google } = require('googleapis');
 
 const token = process.env.TOKEN;
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
+const auth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
+
+const sheets = google.sheets({ version: 'v4', auth });
 
 const app = express();
 app.use(express.json());
@@ -29,43 +31,41 @@ bot.on('message', async (msg) => {
 
   if (!text) return;
 
-  if (text.toLowerCase() === "teste") {
+  if (text.toLowerCase() === "planilha") {
 
-    console.log("📩 Recebeu TESTE");
+    console.log("📩 Recebeu PLANILHA");
 
-    const hoje = new Date();
-    const mes = hoje.getMonth() + 1;
-    const ano = hoje.getFullYear();
-    const data = hoje.toISOString().split("T")[0];
+    try {
 
-    const { data: resultado, error } = await supabase
-      .from('despesas')
-      .insert([
-        {
-          valor: 123.45,
-          descricao: "TESTE REAL",
-          data,
-          mes,
-          ano,
-          categoria: "Teste"
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEET_ID,
+        range: "Dados!A:F",
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[
+            "2026-02-26",
+            777,
+            "TESTE PLANILHA",
+            2,
+            2026,
+            "Teste"
+          ]]
         }
-      ])
-      .select();
+      });
 
-    console.log("📦 Resultado:", resultado);
-    console.log("❌ Erro:", error);
+      console.log("✅ Salvou na planilha");
+      await bot.sendMessage(chatId, "✅ Salvou na planilha!");
 
-    if (error) {
-      await bot.sendMessage(chatId, "❌ ERRO SUPABASE");
-      return;
+    } catch (error) {
+
+      console.log("❌ ERRO PLANILHA:", error);
+      await bot.sendMessage(chatId, "❌ Erro na planilha.");
     }
-
-    await bot.sendMessage(chatId, "✅ Salvou no Supabase!");
 
     return;
   }
 
-  await bot.sendMessage(chatId, "Digite: teste");
+  await bot.sendMessage(chatId, "Digite: planilha");
 });
 
 app.listen(process.env.PORT || 3000);
