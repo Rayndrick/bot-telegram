@@ -66,12 +66,91 @@ bot.on('message', async (msg) => {
         return;
       }
 
-      const textoExtraido = detections[0].description;
+     const textoExtraido = detections[0].description;
 
-      await bot.sendMessage(
-        chatId,
-        `🧠 Texto detectado:\n\n${textoExtraido.substring(0, 1000)}`
-      );
+const linhas = textoExtraido.split("\n");
+
+// =====================
+// 🔎 Extrair DATA
+// =====================
+const dataRegex = /\b\d{2}\/\d{2}\/\d{4}\b/;
+let dataEncontrada = textoExtraido.match(dataRegex);
+let dataFinal = dataEncontrada
+  ? dataEncontrada[0]
+  : new Date().toISOString().split("T")[0];
+
+// =====================
+// 💰 Extrair VALOR TOTAL
+// =====================
+const valorRegex = /TOTAL[\s\S]*?(\d+[.,]\d{2})/i;
+let valorMatch = textoExtraido.match(valorRegex);
+
+if (!valorMatch) {
+  const todosValores = textoExtraido.match(/\d+[.,]\d{2}/g);
+  if (todosValores && todosValores.length > 0) {
+    const maiorValor = todosValores
+      .map(v => parseFloat(v.replace(",", ".")))
+      .sort((a, b) => b - a)[0];
+    valorMatch = [null, maiorValor.toString()];
+  }
+}
+
+let valorFinal = valorMatch
+  ? parseFloat(valorMatch[1].toString().replace(",", "."))
+  : null;
+
+// =====================
+// 🏪 Extrair DESCRIÇÃO
+// =====================
+let descricaoFinal = linhas[0]?.trim() || "Compra via nota";
+
+// =====================
+// 🚨 Se não achou valor
+// =====================
+if (!valorFinal) {
+  await bot.sendMessage(chatId, "❌ Não consegui identificar o valor total automaticamente.");
+  return;
+}
+
+// =====================
+// 📆 Ajustar mês e ano
+// =====================
+const hoje = new Date();
+const mes = hoje.getMonth() + 1;
+const ano = hoje.getFullYear();
+
+// =====================
+// 🗄 Salvar no Supabase
+// =====================
+await supabase.from('despesas').insert([
+  {
+    valor: valorFinal,
+    descricao: descricaoFinal,
+    data: dataFinal,
+    mes,
+    ano
+  }
+]);
+
+// =====================
+// 📊 Salvar na Planilha
+// =====================
+await sheets.spreadsheets.values.append({
+  spreadsheetId: process.env.GOOGLE_SHEET_ID,
+  range: "A:E",
+  valueInputOption: "USER_ENTERED",
+  requestBody: {
+    values: [[dataFinal, valorFinal, descricaoFinal, mes, ano]]
+  }
+});
+
+// =====================
+// ✅ Resposta final
+// =====================
+await bot.sendMessage(
+  chatId,
+  `✅ Despesa registrada automaticamente:\n\n🏪 ${descricaoFinal}\n💰 R$ ${valorFinal.toFixed(2)}\n📅 ${dataFinal}`
+);
 
     } catch (error) {
       console.log("ERRO OCR:", error);
