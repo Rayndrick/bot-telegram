@@ -42,6 +42,44 @@ bot.on('message', async (msg) => {
   const text = msg.text;
 
   // ==========================
+  // 📖 AJUDA
+  // ==========================
+  if (text && (text.toLowerCase() === "/ajuda" || text.toLowerCase() === "ajuda")) {
+    await bot.sendMessage(
+      chatId,
+`📌 *Comandos disponíveis:*
+
+📸 Envie uma *foto da nota* → registra automaticamente
+
+💰 Gastei 50 mercado  
+→ Registro manual
+
+📋 /listar  
+→ Lista despesas do mês atual
+
+📊 /total  
+→ Total do mês atual
+
+📊 /total 2 2026  
+→ Total de um mês específico
+
+📂 /categorias  
+→ Total por categoria no mês atual
+
+📂 /categoria restaurante  
+→ Total da categoria no mês atual
+
+📂 /categoria restaurante 2 2026  
+→ Total da categoria em mês específico
+
+📖 /ajuda  
+→ Mostra esta mensagem`
+      , { parse_mode: "Markdown" });
+
+    return;
+  }
+
+  // ==========================
   // 📸 FOTO (OCR)
   // ==========================
   if (msg.photo) {
@@ -71,18 +109,12 @@ bot.on('message', async (msg) => {
       const textoExtraido = detections[0].description;
       const linhas = textoExtraido.split("\n");
 
-      // =====================
-      // DATA
-      // =====================
       const dataRegex = /\b\d{2}\/\d{2}\/\d{4}\b/;
       const dataEncontrada = textoExtraido.match(dataRegex);
       const dataFinal = dataEncontrada
         ? dataEncontrada[0]
         : new Date().toISOString().split("T")[0];
 
-      // =====================
-      // TOTAL
-      // =====================
       const totalLinhaRegex = /Total\s*[:\-]?\s*(\d+[.,]\d{2})/i;
       let valorMatch = textoExtraido.match(totalLinhaRegex);
 
@@ -98,9 +130,6 @@ bot.on('message', async (msg) => {
         ? parseFloat(valorMatch[1].replace(",", "."))
         : null;
 
-      // =====================
-      // DESCRIÇÃO
-      // =====================
       let descricaoFinal = "Compra";
 
       for (let linha of linhas.slice(0, 6)) {
@@ -121,7 +150,6 @@ bot.on('message', async (msg) => {
         }
       }
 
-      // Limpeza OCR comum
       descricaoFinal = descricaoFinal.replace(/^110\s+/i, "TIO ");
       descricaoFinal = descricaoFinal.replace(/^\d+\s+/, "");
       descricaoFinal = descricaoFinal.replace(/\s{2,}/g, " ").trim();
@@ -135,9 +163,6 @@ bot.on('message', async (msg) => {
       const mes = hoje.getMonth() + 1;
       const ano = hoje.getFullYear();
 
-      // =====================
-      // CATEGORIA
-      // =====================
       let categoria = "Outros";
       const descLower = descricaoFinal.toLowerCase();
 
@@ -180,37 +205,7 @@ bot.on('message', async (msg) => {
   if (!text) return;
 
   // ==========================
-  // LISTAR
-  // ==========================
-  if (text.toLowerCase() === "/listar") {
-
-    const hoje = new Date();
-    const mes = hoje.getMonth() + 1;
-    const ano = hoje.getFullYear();
-
-    const { data } = await supabase
-      .from('despesas')
-      .select('*')
-      .eq('mes', mes)
-      .eq('ano', ano);
-
-    if (!data || data.length === 0) {
-      await bot.sendMessage(chatId, "Nenhuma despesa registrada.");
-      return;
-    }
-
-    let mensagem = "📋 Despesas do mês:\n\n";
-
-    data.forEach(item => {
-      mensagem += `• ${item.data} - R$ ${item.valor.toFixed(2)} - ${item.descricao} (${item.categoria})\n`;
-    });
-
-    await bot.sendMessage(chatId, mensagem);
-    return;
-  }
-
-  // ==========================
-  // TOTAL GERAL
+  // TOTAL MÊS ATUAL
   // ==========================
   if (text.toLowerCase() === "/total") {
 
@@ -231,43 +226,37 @@ bot.on('message', async (msg) => {
   }
 
   // ==========================
-  // TOTAL POR CATEGORIA (MÊS)
+  // TOTAL MÊS ESPECÍFICO
   // ==========================
-  if (text.toLowerCase() === "/categorias") {
+  if (text.toLowerCase().startsWith("/total ")) {
 
-    const hoje = new Date();
-    const mes = hoje.getMonth() + 1;
-    const ano = hoje.getFullYear();
+    const partes = text.split(" ");
 
-    const { data } = await supabase
-      .from('despesas')
-      .select('valor, categoria')
-      .eq('mes', mes)
-      .eq('ano', ano);
-
-    if (!data || data.length === 0) {
-      await bot.sendMessage(chatId, "Nenhuma despesa encontrada.");
+    if (partes.length < 3) {
+      await bot.sendMessage(chatId, "Use: /total 2 2026");
       return;
     }
 
-    const resumo = {};
+    const mesEscolhido = parseInt(partes[1]);
+    const anoEscolhido = parseInt(partes[2]);
 
-    data.forEach(item => {
-      if (!resumo[item.categoria]) resumo[item.categoria] = 0;
-      resumo[item.categoria] += Number(item.valor);
-    });
+    const { data } = await supabase
+      .from('despesas')
+      .select('valor')
+      .eq('mes', mesEscolhido)
+      .eq('ano', anoEscolhido);
 
-    let mensagem = "📊 Gastos por categoria (mês):\n\n";
+    const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
 
-    for (let cat in resumo) {
-      mensagem += `• ${cat}: R$ ${resumo[cat].toFixed(2)}\n`;
-    }
+    await bot.sendMessage(
+      chatId,
+      `📊 Total em ${mesEscolhido}/${anoEscolhido}: R$ ${total.toFixed(2)}`
+    );
 
-    await bot.sendMessage(chatId, mensagem);
     return;
   }
 
-  await bot.sendMessage(chatId, "Use: Gastei 50 supermercado");
+  await bot.sendMessage(chatId, "Digite /ajuda para ver os comandos disponíveis.");
 });
 
 app.get('/', (req, res) => {
