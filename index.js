@@ -66,91 +66,91 @@ bot.on('message', async (msg) => {
         return;
       }
 
-     const textoExtraido = detections[0].description;
+      const textoExtraido = detections[0].description;
+      const linhas = textoExtraido.split("\n");
 
-const linhas = textoExtraido.split("\n");
+      // =====================
+      // 🔎 DATA
+      // =====================
+      const dataRegex = /\b\d{2}\/\d{2}\/\d{4}\b/;
+      const dataEncontrada = textoExtraido.match(dataRegex);
+      const dataFinal = dataEncontrada
+        ? dataEncontrada[0]
+        : new Date().toISOString().split("T")[0];
 
-// =====================
-// 🔎 Extrair DATA
-// =====================
-const dataRegex = /\b\d{2}\/\d{2}\/\d{4}\b/;
-let dataEncontrada = textoExtraido.match(dataRegex);
-let dataFinal = dataEncontrada
-  ? dataEncontrada[0]
-  : new Date().toISOString().split("T")[0];
+      // =====================
+      // 💰 TOTAL (melhorado)
+      // =====================
+      const totalLinhaRegex = /Total\s*[:\-]?\s*(\d+[.,]\d{2})/i;
+      let valorMatch = textoExtraido.match(totalLinhaRegex);
 
-// =====================
-// 💰 Extrair VALOR TOTAL
-// =====================
-const valorRegex = /TOTAL[\s\S]*?(\d+[.,]\d{2})/i;
-let valorMatch = textoExtraido.match(valorRegex);
+      if (!valorMatch) {
+        const todosValores = textoExtraido.match(/\d+[.,]\d{2}/g);
+        if (todosValores && todosValores.length > 0) {
+          const ultimoValor = todosValores[todosValores.length - 1];
+          valorMatch = [null, ultimoValor];
+        }
+      }
 
-if (!valorMatch) {
-  const todosValores = textoExtraido.match(/\d+[.,]\d{2}/g);
-  if (todosValores && todosValores.length > 0) {
-    const maiorValor = todosValores
-      .map(v => parseFloat(v.replace(",", ".")))
-      .sort((a, b) => b - a)[0];
-    valorMatch = [null, maiorValor.toString()];
-  }
-}
+      const valorFinal = valorMatch
+        ? parseFloat(valorMatch[1].replace(",", "."))
+        : null;
 
-let valorFinal = valorMatch
-  ? parseFloat(valorMatch[1].toString().replace(",", "."))
-  : null;
+      // =====================
+      // 🏪 DESCRIÇÃO (inteligente)
+      // =====================
+      let descricaoFinal = "Compra";
 
-// =====================
-// 🏪 Extrair DESCRIÇÃO
-// =====================
-let descricaoFinal = linhas[0]?.trim() || "Compra via nota";
+      for (let linha of linhas.slice(0, 6)) {
+        const linhaLimpa = linha.trim();
 
-// =====================
-// 🚨 Se não achou valor
-// =====================
-if (!valorFinal) {
-  await bot.sendMessage(chatId, "❌ Não consegui identificar o valor total automaticamente.");
-  return;
-}
+        const ehMaiuscula = linhaLimpa === linhaLimpa.toUpperCase();
+        const tamanhoOk = linhaLimpa.length > 5;
 
-// =====================
-// 📆 Ajustar mês e ano
-// =====================
-const hoje = new Date();
-const mes = hoje.getMonth() + 1;
-const ano = hoje.getFullYear();
+        const contemPalavraInvalida =
+          linhaLimpa.toLowerCase().includes("conferencia") ||
+          linhaLimpa.toLowerCase().includes("data") ||
+          linhaLimpa.toLowerCase().includes("hora") ||
+          linhaLimpa.toLowerCase().includes("mesa");
 
-// =====================
-// 🗄 Salvar no Supabase
-// =====================
-await supabase.from('despesas').insert([
-  {
-    valor: valorFinal,
-    descricao: descricaoFinal,
-    data: dataFinal,
-    mes,
-    ano
-  }
-]);
+        if (ehMaiuscula && tamanhoOk && !contemPalavraInvalida) {
+          descricaoFinal = linhaLimpa;
+          break;
+        }
+      }
 
-// =====================
-// 📊 Salvar na Planilha
-// =====================
-await sheets.spreadsheets.values.append({
-  spreadsheetId: process.env.GOOGLE_SHEET_ID,
-  range: "A:E",
-  valueInputOption: "USER_ENTERED",
-  requestBody: {
-    values: [[dataFinal, valorFinal, descricaoFinal, mes, ano]]
-  }
-});
+      if (!valorFinal) {
+        await bot.sendMessage(chatId, "❌ Não consegui identificar o valor total automaticamente.");
+        return;
+      }
 
-// =====================
-// ✅ Resposta final
-// =====================
-await bot.sendMessage(
-  chatId,
-  `✅ Despesa registrada automaticamente:\n\n🏪 ${descricaoFinal}\n💰 R$ ${valorFinal.toFixed(2)}\n📅 ${dataFinal}`
-);
+      const hoje = new Date();
+      const mes = hoje.getMonth() + 1;
+      const ano = hoje.getFullYear();
+
+      await supabase.from('despesas').insert([
+        {
+          valor: valorFinal,
+          descricao: descricaoFinal,
+          data: dataFinal,
+          mes,
+          ano
+        }
+      ]);
+
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEET_ID,
+        range: "A:E",
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[dataFinal, valorFinal, descricaoFinal, mes, ano]]
+        }
+      });
+
+      await bot.sendMessage(
+        chatId,
+        `✅ Despesa registrada automaticamente:\n\n🏪 ${descricaoFinal}\n💰 R$ ${valorFinal.toFixed(2)}\n📅 ${dataFinal}`
+      );
 
     } catch (error) {
       console.log("ERRO OCR:", error);
@@ -163,7 +163,7 @@ await bot.sendMessage(
   if (!text) return;
 
   // ==========================
-  // 📋 LISTAR DESPESAS
+  // 📋 LISTAR
   // ==========================
   if (text.toLowerCase() === "/listar") {
 
@@ -178,12 +178,12 @@ await bot.sendMessage(
       .eq('ano', ano)
       .order('data', { ascending: true });
 
-    if (error) {
+    if (error || !data) {
       await bot.sendMessage(chatId, "Erro ao listar despesas.");
       return;
     }
 
-    if (!data || data.length === 0) {
+    if (data.length === 0) {
       await bot.sendMessage(chatId, "Nenhuma despesa registrada neste mês.");
       return;
     }
@@ -199,7 +199,7 @@ await bot.sendMessage(
   }
 
   // ==========================
-  // 📊 TOTAL DO MÊS
+  // 📊 TOTAL
   // ==========================
   if (text.toLowerCase() === "/total") {
 
@@ -207,16 +207,11 @@ await bot.sendMessage(
     const mes = hoje.getMonth() + 1;
     const ano = hoje.getFullYear();
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('despesas')
       .select('valor')
       .eq('mes', mes)
       .eq('ano', ano);
-
-    if (error) {
-      await bot.sendMessage(chatId, "Erro ao calcular total.");
-      return;
-    }
 
     const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
 
@@ -225,7 +220,7 @@ await bot.sendMessage(
   }
 
   // ==========================
-  // 💰 REGISTRAR DESPESA
+  // 💰 REGISTRO MANUAL
   // ==========================
   if (text.toLowerCase().startsWith("gastei")) {
 
@@ -243,33 +238,20 @@ await bot.sendMessage(
     const ano = hoje.getFullYear();
     const data = hoje.toISOString().split('T')[0];
 
-    const { error } = await supabase
-      .from('despesas')
-      .insert([{ valor, descricao, data, mes, ano }]);
+    await supabase.from('despesas').insert([
+      { valor, descricao, data, mes, ano }
+    ]);
 
-    if (error) {
-      console.log(error);
-      await bot.sendMessage(chatId, "Erro ao salvar despesa.");
-      return;
-    }
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "A:E",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[data, valor, descricao, mes, ano]],
+      },
+    });
 
-    try {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: process.env.GOOGLE_SHEET_ID,
-        range: "A:E",
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [[data, valor, descricao, mes, ano]],
-        },
-      });
-
-      await bot.sendMessage(chatId, `💰 Registrado: R$ ${valor} - ${descricao}`);
-
-    } catch (sheetError) {
-      console.log(sheetError);
-      await bot.sendMessage(chatId, "Salvou no banco, mas erro ao enviar para planilha.");
-    }
-
+    await bot.sendMessage(chatId, `💰 Registrado: R$ ${valor} - ${descricao}`);
     return;
   }
 
