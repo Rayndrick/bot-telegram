@@ -1,4 +1,4 @@
-console.log("🚀 SISTEMA COMPLETO CARREGADO 🚀");
+console.log("🚀 SISTEMA FINANCEIRO DEFINITIVO V2 🚀");
 
 const fetch = (...args) =>
   import('node-fetch').then(({ default: fetch }) => fetch(...args));
@@ -41,7 +41,7 @@ app.post('/webhook', (req, res) => {
 function classificarCategoria(descricao) {
   const desc = descricao.toLowerCase();
 
-  if (desc.includes("burger") || desc.includes("armenio") || desc.includes("rest"))
+  if (desc.includes("armenio") || desc.includes("burger") || desc.includes("pizza"))
     return "Restaurante";
 
   if (desc.includes("mercado"))
@@ -56,100 +56,86 @@ function classificarCategoria(descricao) {
 bot.on('message', async (msg) => {
 
   const chatId = msg.chat.id;
-  const text = msg.text;
+  const text = msg.text?.trim().toLowerCase();
 
   // ==========================
-  // FOTO (OCR)
+  // AJUDA
   // ==========================
-  if (msg.photo) {
+  if (text === "ajuda" || text === "/ajuda") {
+    await bot.sendMessage(chatId,
+`📌 COMANDOS DISPONÍVEIS:
 
-    try {
+📸 Envie foto da nota → Registro automático
+💰 Gastei 50 mercado → Registro manual
 
-      const photo = msg.photo[msg.photo.length - 1];
-      const file = await bot.getFile(photo.file_id);
+📊 /total → Total mês atual
+📆 /mes 2 2026 → Total mês específico
+📂 /categorias → Resumo categorias
+📂 /cat restaurante → Categoria mês atual
+📂 /cat restaurante 2 2026 → Categoria mês específico
+📋 /listar → Lista despesas mês atual`
+    );
+    return;
+  }
 
-      const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+  // ==========================
+  // TOTAL MÊS ATUAL
+  // ==========================
+  if (text === "/total") {
 
-      const response = await fetch(fileUrl);
-      const buffer = await response.arrayBuffer();
-      const base64Image = Buffer.from(buffer).toString("base64");
+    const hoje = new Date();
+    const mes = hoje.getMonth() + 1;
+    const ano = hoje.getFullYear();
 
-      const [result] = await visionClient.textDetection({
-        image: { content: base64Image },
-      });
+    const { data } = await supabase
+      .from('despesas')
+      .select('valor')
+      .eq('mes', mes)
+      .eq('ano', ano);
 
-      const texto = result.textAnnotations?.[0]?.description;
+    const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
 
-      if (!texto) {
-        await bot.sendMessage(chatId, "❌ Não consegui ler a nota.");
-        return;
-      }
+    await bot.sendMessage(chatId,
+      `📊 Total mês atual: R$ ${total.toFixed(2)}`
+    );
+    return;
+  }
 
-      const linhas = texto.split("\n");
+  // ==========================
+  // LISTAR
+  // ==========================
+  if (text === "/listar") {
 
-      // DATA
-      const dataMatch = texto.match(/\d{2}\/\d{2}\/\d{4}/);
-      const dataFinal = dataMatch
-        ? dataMatch[0]
-        : new Date().toISOString().split("T")[0];
+    const hoje = new Date();
+    const mes = hoje.getMonth() + 1;
+    const ano = hoje.getFullYear();
 
-      // VALOR TOTAL
-      const valores = texto.match(/\d+[.,]\d{2}/g);
-      const valorFinal = valores
-        ? parseFloat(valores[valores.length - 1].replace(",", "."))
-        : null;
+    const { data } = await supabase
+      .from('despesas')
+      .select('*')
+      .eq('mes', mes)
+      .eq('ano', ano)
+      .order('data', { ascending: true });
 
-      if (!valorFinal) {
-        await bot.sendMessage(chatId, "❌ Não identifiquei o valor.");
-        return;
-      }
-
-      // DESCRIÇÃO
-      let descricaoFinal = linhas[1] || "Compra";
-      const categoria = classificarCategoria(descricaoFinal);
-
-      const hoje = new Date();
-      const mes = hoje.getMonth() + 1;
-      const ano = hoje.getFullYear();
-
-      // SALVAR NO SUPABASE
-      const { error } = await supabase.from("despesas").insert([
-        { valor: valorFinal, descricao: descricaoFinal, data: dataFinal, mes, ano, categoria }
-      ]);
-
-      if (error) {
-        console.log("❌ Supabase:", error);
-        await bot.sendMessage(chatId, "Erro ao salvar no banco.");
-        return;
-      }
-
-      // SALVAR NA PLANILHA
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: process.env.GOOGLE_SHEET_ID,
-        range: "Dados!A:F",
-        valueInputOption: "USER_ENTERED",
-        requestBody: {
-          values: [[dataFinal, valorFinal, descricaoFinal, mes, ano, categoria]]
-        }
-      });
-
-      await bot.sendMessage(chatId,
-        `✅ Registrado automaticamente:\n\n🏪 ${descricaoFinal}\n💰 R$ ${valorFinal.toFixed(2)}\n📅 ${dataFinal}`
-      );
-
-    } catch (error) {
-
-      console.log("❌ OCR:", error);
-      await bot.sendMessage(chatId, "Erro ao processar imagem.");
+    if (!data || data.length === 0) {
+      await bot.sendMessage(chatId, "Nenhuma despesa neste mês.");
+      return;
     }
 
+    let mensagem = "📋 Despesas do mês:\n\n";
+
+    data.forEach(item => {
+      mensagem += `${item.data} - R$ ${Number(item.valor).toFixed(2)} - ${item.descricao} (${item.categoria})\n`;
+    });
+
+    await bot.sendMessage(chatId, mensagem);
     return;
   }
 
   // ==========================
   // REGISTRO MANUAL
   // ==========================
-  if (text && text.toLowerCase().startsWith("gastei")) {
+  if (text && text.startsWith("gastei")) {
 
     const partes = text.split(" ");
     const valor = parseFloat(partes[1]);
@@ -181,13 +167,17 @@ bot.on('message', async (msg) => {
     });
 
     await bot.sendMessage(chatId,
-      `✅ Registrado:\n\n💰 R$ ${valor.toFixed(2)}\n🏪 ${descricao}`
+      `✅ Registrado:
+
+💰 R$ ${valor.toFixed(2)}
+🏪 ${descricao}
+📂 ${categoria}`
     );
 
     return;
   }
 
-  await bot.sendMessage(chatId, "Envie uma foto ou use: Gastei 50 mercado");
+  await bot.sendMessage(chatId, "Digite /ajuda para ver os comandos.");
 });
 
 app.listen(process.env.PORT || 3000);
