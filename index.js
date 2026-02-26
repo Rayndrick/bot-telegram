@@ -1,4 +1,4 @@
-console.log("🚀 SISTEMA FINANCEIRO DEFINITIVO V2 🚀");
+console.log("🚀 SISTEMA FINANCEIRO INTELIGENTE V4 🚀");
 
 const fetch = (...args) =>
   import('node-fetch').then(({ default: fetch }) => fetch(...args));
@@ -38,43 +38,205 @@ app.post('/webhook', (req, res) => {
   res.sendStatus(200);
 });
 
+
+// ============================================
+// CLASSIFICAÇÃO INTELIGENTE
+// ============================================
+
 function classificarCategoria(descricao) {
+
   const desc = descricao.toLowerCase();
 
-  if (desc.includes("armenio") || desc.includes("burger") || desc.includes("pizza"))
-    return "Restaurante";
+  // 🍔 ALIMENTAÇÃO
+  if (
+    desc.includes("rest") ||
+    desc.includes("burger") ||
+    desc.includes("pizza") ||
+    desc.includes("lanche") ||
+    desc.includes("armenio") ||
+    desc.includes("ifood") ||
+    desc.includes("padaria") ||
+    desc.includes("café")
+  ) return "Alimentação";
 
-  if (desc.includes("mercado"))
-    return "Supermercado";
+  // 🛒 SUPERMERCADO
+  if (
+    desc.includes("mercado") ||
+    desc.includes("super") ||
+    desc.includes("carrefour") ||
+    desc.includes("extra") ||
+    desc.includes("assai")
+  ) return "Supermercado";
 
-  if (desc.includes("posto"))
-    return "Combustível";
+  // ⛽ TRANSPORTE
+  if (
+    desc.includes("posto") ||
+    desc.includes("ipiranga") ||
+    desc.includes("uber") ||
+    desc.includes("99") ||
+    desc.includes("gasolina") ||
+    desc.includes("combust")
+  ) return "Transporte";
+
+  // 💊 SAÚDE
+  if (
+    desc.includes("farm") ||
+    desc.includes("droga") ||
+    desc.includes("clinica") ||
+    desc.includes("hospital")
+  ) return "Saúde";
+
+  // 🛍 LAZER / COMPRAS
+  if (
+    desc.includes("shopping") ||
+    desc.includes("roupa") ||
+    desc.includes("loja") ||
+    desc.includes("amazon")
+  ) return "Lazer/Compras";
 
   return "Outros";
 }
 
+
+// ============================================
+// FUNÇÃO PARA SALVAR
+// ============================================
+
+async function salvarDespesa(chatId, valor, descricao, dataFinal) {
+
+  const categoria = classificarCategoria(descricao);
+
+  const hoje = new Date();
+  const mes = hoje.getMonth() + 1;
+  const ano = hoje.getFullYear();
+
+  await supabase.from("despesas").insert([
+    { valor, descricao, data: dataFinal, mes, ano, categoria }
+  ]);
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: "Dados!A:F",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[dataFinal, valor, descricao, mes, ano, categoria]]
+    }
+  });
+
+  await bot.sendMessage(chatId,
+`✅ Registrado:
+
+💰 R$ ${valor.toFixed(2)}
+🏪 ${descricao}
+📂 ${categoria}
+📅 ${dataFinal}`
+  );
+}
+
+
+// ============================================
+// BOT
+// ============================================
+
 bot.on('message', async (msg) => {
 
   const chatId = msg.chat.id;
-  const text = msg.text?.trim().toLowerCase();
+  const textOriginal = msg.text?.trim();
+  const text = textOriginal?.toLowerCase();
 
   // ==========================
   // AJUDA
   // ==========================
   if (text === "ajuda" || text === "/ajuda") {
     await bot.sendMessage(chatId,
-`📌 COMANDOS DISPONÍVEIS:
+`📌 COMANDOS:
 
 📸 Envie foto da nota → Registro automático
 💰 Gastei 50 mercado → Registro manual
 
 📊 /total → Total mês atual
 📆 /mes 2 2026 → Total mês específico
-📂 /categorias → Resumo categorias
-📂 /cat restaurante → Categoria mês atual
-📂 /cat restaurante 2 2026 → Categoria mês específico
+📂 /categorias → Resumo categorias mês atual
+📂 /cat alimentação → Categoria mês atual
+📂 /cat alimentação 2 2026 → Categoria mês específico
 📋 /listar → Lista despesas mês atual`
     );
+    return;
+  }
+
+  // ==========================
+  // FOTO (OCR)
+  // ==========================
+  if (msg.photo) {
+
+    try {
+
+      const photo = msg.photo[msg.photo.length - 1];
+      const file = await bot.getFile(photo.file_id);
+
+      const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+
+      const response = await fetch(fileUrl);
+      const buffer = await response.arrayBuffer();
+      const base64Image = Buffer.from(buffer).toString("base64");
+
+      const [result] = await visionClient.textDetection({
+        image: { content: base64Image },
+      });
+
+      const texto = result.textAnnotations?.[0]?.description;
+
+      if (!texto) {
+        await bot.sendMessage(chatId, "❌ Não consegui ler a nota.");
+        return;
+      }
+
+      const linhas = texto.split("\n");
+
+      const dataMatch = texto.match(/\d{2}\/\d{2}\/\d{4}/);
+      const dataFinal = dataMatch
+        ? dataMatch[0]
+        : new Date().toISOString().split("T")[0];
+
+      const valores = texto.match(/\d+[.,]\d{2}/g);
+      const valorFinal = valores
+        ? parseFloat(valores[valores.length - 1].replace(",", "."))
+        : null;
+
+      if (!valorFinal) {
+        await bot.sendMessage(chatId, "❌ Não identifiquei o valor total.");
+        return;
+      }
+
+      let descricaoFinal = linhas[1] || "Compra";
+
+      await salvarDespesa(chatId, valorFinal, descricaoFinal, dataFinal);
+
+    } catch (error) {
+      console.log("OCR ERRO:", error);
+      await bot.sendMessage(chatId, "Erro ao processar imagem.");
+    }
+
+    return;
+  }
+
+  // ==========================
+  // REGISTRO MANUAL
+  // ==========================
+  if (text && text.startsWith("gastei")) {
+
+    const partes = textOriginal.split(" ");
+    const valor = parseFloat(partes[1]);
+    const descricao = partes.slice(2).join(" ");
+
+    if (isNaN(valor)) {
+      await bot.sendMessage(chatId, "Use: Gastei 50 mercado");
+      return;
+    }
+
+    const data = new Date().toISOString().split("T")[0];
+
+    await salvarDespesa(chatId, valor, descricao, data);
     return;
   }
 
@@ -102,9 +264,38 @@ bot.on('message', async (msg) => {
   }
 
   // ==========================
-  // LISTAR
+  // TOTAL MÊS ESPECÍFICO
   // ==========================
-  if (text === "/listar") {
+  if (text && text.startsWith("/mes")) {
+
+    const partes = textOriginal.split(" ");
+
+    if (partes.length < 3) {
+      await bot.sendMessage(chatId, "Use: /mes 2 2026");
+      return;
+    }
+
+    const mesEscolhido = parseInt(partes[1]);
+    const anoEscolhido = parseInt(partes[2]);
+
+    const { data } = await supabase
+      .from('despesas')
+      .select('valor')
+      .eq('mes', mesEscolhido)
+      .eq('ano', anoEscolhido);
+
+    const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
+
+    await bot.sendMessage(chatId,
+      `📆 ${mesEscolhido}/${anoEscolhido}: R$ ${total.toFixed(2)}`
+    );
+    return;
+  }
+
+  // ==========================
+  // CATEGORIAS MÊS ATUAL
+  // ==========================
+  if (text === "/categorias") {
 
     const hoje = new Date();
     const mes = hoje.getMonth() + 1;
@@ -112,68 +303,24 @@ bot.on('message', async (msg) => {
 
     const { data } = await supabase
       .from('despesas')
-      .select('*')
+      .select('valor, categoria')
       .eq('mes', mes)
-      .eq('ano', ano)
-      .order('data', { ascending: true });
+      .eq('ano', ano);
 
-    if (!data || data.length === 0) {
-      await bot.sendMessage(chatId, "Nenhuma despesa neste mês.");
-      return;
-    }
+    const resumo = {};
 
-    let mensagem = "📋 Despesas do mês:\n\n";
-
-    data.forEach(item => {
-      mensagem += `${item.data} - R$ ${Number(item.valor).toFixed(2)} - ${item.descricao} (${item.categoria})\n`;
+    (data || []).forEach(item => {
+      if (!resumo[item.categoria]) resumo[item.categoria] = 0;
+      resumo[item.categoria] += Number(item.valor);
     });
+
+    let mensagem = "📂 Categorias mês atual:\n\n";
+
+    for (let cat in resumo) {
+      mensagem += `• ${cat}: R$ ${resumo[cat].toFixed(2)}\n`;
+    }
 
     await bot.sendMessage(chatId, mensagem);
-    return;
-  }
-
-  // ==========================
-  // REGISTRO MANUAL
-  // ==========================
-  if (text && text.startsWith("gastei")) {
-
-    const partes = text.split(" ");
-    const valor = parseFloat(partes[1]);
-    const descricao = partes.slice(2).join(" ");
-
-    if (isNaN(valor)) {
-      await bot.sendMessage(chatId, "Use: Gastei 50 mercado");
-      return;
-    }
-
-    const categoria = classificarCategoria(descricao);
-
-    const hoje = new Date();
-    const mes = hoje.getMonth() + 1;
-    const ano = hoje.getFullYear();
-    const data = hoje.toISOString().split("T")[0];
-
-    await supabase.from("despesas").insert([
-      { valor, descricao, data, mes, ano, categoria }
-    ]);
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Dados!A:F",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[data, valor, descricao, mes, ano, categoria]]
-      }
-    });
-
-    await bot.sendMessage(chatId,
-      `✅ Registrado:
-
-💰 R$ ${valor.toFixed(2)}
-🏪 ${descricao}
-📂 ${categoria}`
-    );
-
     return;
   }
 
