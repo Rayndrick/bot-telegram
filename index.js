@@ -8,14 +8,11 @@ const { google } = require('googleapis');
 const vision = require('@google-cloud/vision');
 
 const token = process.env.TOKEN;
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-const auth = new google.auth.GoogleAuth({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-
-const sheets = google.sheets({ version: 'v4', auth });
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
 const visionClient = new vision.ImageAnnotatorClient({
   credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
@@ -27,7 +24,7 @@ app.use(express.json());
 const bot = new TelegramBot(token);
 bot.setWebHook(`${process.env.RENDER_EXTERNAL_URL}/webhook`);
 
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
@@ -38,24 +35,88 @@ bot.on('message', async (msg) => {
   const text = msg.text;
 
   // ==========================
-  // AJUDA
+  // FOTO (OCR)
   // ==========================
-  if (text && (text.toLowerCase() === "/ajuda" || text.toLowerCase() === "ajuda")) {
-    await bot.sendMessage(chatId,
-`📌 Comandos:
+  if (msg.photo) {
+    try {
 
-📸 Envie foto → Registro automático
-💰 Gastei 50 mercado → Registro manual
+      console.log("📸 Foto recebida");
 
-📊 /total → Total mês atual
-📆 /mes 2 2026 → Total mês específico
+      const photo = msg.photo[msg.photo.length - 1];
+      const file = await bot.getFile(photo.file_id);
 
-📂 /categorias → Resumo categorias mês atual
-📂 /cat restaurante → Categoria mês atual
-📂 /cat restaurante 2 2026 → Categoria mês específico
+      const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
-📋 /listar → Lista mês atual`
-    );
+      const response = await fetch(fileUrl);
+      const buffer = await response.arrayBuffer();
+      const base64Image = Buffer.from(buffer).toString("base64");
+
+      const [result] = await visionClient.textDetection({
+        image: { content: base64Image },
+      });
+
+      const textoExtraido = result.textAnnotations?.[0]?.description;
+
+      if (!textoExtraido) {
+        await bot.sendMessage(chatId, "❌ Não consegui ler a nota.");
+        return;
+      }
+
+      console.log("🧠 Texto extraído:", textoExtraido);
+
+      const linhas = textoExtraido.split("\n");
+
+      // DATA
+      const dataMatch = textoExtraido.match(/\d{2}\/\d{2}\/\d{4}/);
+      const dataFinal = dataMatch
+        ? dataMatch[0]
+        : new Date().toISOString().split("T")[0];
+
+      // TOTAL
+      const valores = textoExtraido.match(/\d+[.,]\d{2}/g);
+      const valorFinal = valores
+        ? parseFloat(valores[valores.length - 1].replace(",", "."))
+        : null;
+
+      if (!valorFinal) {
+        await bot.sendMessage(chatId, "❌ Não identifiquei o valor.");
+        return;
+      }
+
+      // DESCRIÇÃO
+      let descricaoFinal = linhas[1] || "Compra";
+      descricaoFinal = descricaoFinal.replace(/^110\s+/i, "TIO ");
+
+      const hoje = new Date();
+      const mes = hoje.getMonth() + 1;
+      const ano = hoje.getFullYear();
+
+      const { error } = await supabase.from("despesas").insert([
+        {
+          valor: valorFinal,
+          descricao: descricaoFinal,
+          data: dataFinal,
+          mes,
+          ano,
+          categoria: "Restaurante"
+        }
+      ]);
+
+      if (error) {
+        console.log("❌ Erro Supabase:", error);
+        await bot.sendMessage(chatId, "Erro ao salvar no banco.");
+        return;
+      }
+
+      await bot.sendMessage(chatId,
+        `✅ Registrado:\n\n🏪 ${descricaoFinal}\n💰 R$ ${valorFinal.toFixed(2)}\n📅 ${dataFinal}`
+      );
+
+    } catch (error) {
+      console.log("❌ ERRO OCR:", error);
+      await bot.sendMessage(chatId, "Erro ao processar imagem.");
+    }
+
     return;
   }
 
@@ -78,158 +139,27 @@ bot.on('message', async (msg) => {
     const ano = hoje.getFullYear();
     const data = hoje.toISOString().split("T")[0];
 
-    let categoria = "Outros";
-    const descLower = descricao.toLowerCase();
-
-    if (descLower.includes("burger") || descLower.includes("rest")) categoria = "Restaurante";
-    if (descLower.includes("mercado")) categoria = "Supermercado";
-
-    await supabase.from('despesas').insert([
-      { valor, descricao, data, mes, ano, categoria }
+    const { error } = await supabase.from("despesas").insert([
+      { valor, descricao, data, mes, ano, categoria: "Outros" }
     ]);
 
+    if (error) {
+      console.log("❌ Erro Supabase:", error);
+      await bot.sendMessage(chatId, "Erro ao salvar no banco.");
+      return;
+    }
+
     await bot.sendMessage(chatId,
-      `✅ Registrado:\n\n🏪 ${descricao}\n💰 R$ ${valor.toFixed(2)}\n📂 ${categoria}`
+      `✅ Registrado: R$ ${valor.toFixed(2)} - ${descricao}`
     );
 
     return;
   }
 
-  // ==========================
-  // TOTAL MÊS ATUAL
-  // ==========================
-  if (text && text.toLowerCase() === "/total") {
-
-    const hoje = new Date();
-    const mes = hoje.getMonth() + 1;
-    const ano = hoje.getFullYear();
-
-    const { data } = await supabase
-      .from('despesas')
-      .select('valor')
-      .eq('mes', mes)
-      .eq('ano', ano);
-
-    const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
-
-    await bot.sendMessage(chatId, `📊 Total do mês: R$ ${total.toFixed(2)}`);
-    return;
-  }
-
-  // ==========================
-  // TOTAL MÊS ESPECÍFICO
-  // ==========================
-  if (text && text.toLowerCase().startsWith("/mes")) {
-
-    const partes = text.split(" ");
-    if (partes.length < 3) {
-      await bot.sendMessage(chatId, "Use: /mes 2 2026");
-      return;
-    }
-
-    const mesEscolhido = parseInt(partes[1]);
-    const anoEscolhido = parseInt(partes[2]);
-
-    const { data } = await supabase
-      .from('despesas')
-      .select('valor')
-      .eq('mes', mesEscolhido)
-      .eq('ano', anoEscolhido);
-
-    const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
-
-    await bot.sendMessage(chatId,
-      `📆 ${mesEscolhido}/${anoEscolhido}: R$ ${total.toFixed(2)}`
-    );
-
-    return;
-  }
-
-  // ==========================
-  // RESUMO CATEGORIAS
-  // ==========================
-  if (text && text.toLowerCase() === "/categorias") {
-
-    const hoje = new Date();
-    const mes = hoje.getMonth() + 1;
-    const ano = hoje.getFullYear();
-
-    const { data } = await supabase
-      .from('despesas')
-      .select('valor, categoria')
-      .eq('mes', mes)
-      .eq('ano', ano);
-
-    if (!data || data.length === 0) {
-      await bot.sendMessage(chatId, "Nenhuma despesa encontrada.");
-      return;
-    }
-
-    const resumo = {};
-
-    data.forEach(item => {
-      if (!resumo[item.categoria]) resumo[item.categoria] = 0;
-      resumo[item.categoria] += Number(item.valor);
-    });
-
-    let mensagem = "📂 Categorias:\n\n";
-    for (let cat in resumo) {
-      mensagem += `• ${cat}: R$ ${resumo[cat].toFixed(2)}\n`;
-    }
-
-    await bot.sendMessage(chatId, mensagem);
-    return;
-  }
-
-  // ==========================
-  // CATEGORIA ESPECÍFICA
-  // ==========================
-  if (text && text.toLowerCase().startsWith("/cat")) {
-
-    const partes = text.split(" ");
-
-    if (partes.length < 2) {
-      await bot.sendMessage(chatId, "Use: /cat restaurante OU /cat restaurante 2 2026");
-      return;
-    }
-
-    const nomeCategoria = partes[1];
-
-    let mesEscolhido;
-    let anoEscolhido;
-
-    if (partes.length >= 4) {
-      mesEscolhido = parseInt(partes[2]);
-      anoEscolhido = parseInt(partes[3]);
-    } else {
-      const hoje = new Date();
-      mesEscolhido = hoje.getMonth() + 1;
-      anoEscolhido = hoje.getFullYear();
-    }
-
-    const { data } = await supabase
-      .from('despesas')
-      .select('valor')
-      .ilike('categoria', nomeCategoria)
-      .eq('mes', mesEscolhido)
-      .eq('ano', anoEscolhido);
-
-    const total = (data || []).reduce((acc, item) => acc + Number(item.valor), 0);
-
-    await bot.sendMessage(chatId,
-      `📂 ${nomeCategoria} (${mesEscolhido}/${anoEscolhido}): R$ ${total.toFixed(2)}`
-    );
-
-    return;
-  }
-
-  // ==========================
-  // FALLBACK
-  // ==========================
-  await bot.sendMessage(chatId, "Digite /ajuda para ver os comandos disponíveis.");
+  await bot.sendMessage(chatId, "Envie uma foto ou digite Gastei 50 mercado");
 });
 
-app.get('/', (req, res) => {
+app.get("/", (req, res) => {
   res.send("Bot rodando");
 });
 
