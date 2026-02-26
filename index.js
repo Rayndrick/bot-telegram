@@ -1,10 +1,16 @@
-console.log("📊 TESTE PLANILHA CARREGADO 📊");
+console.log("🚀 SISTEMA BASE CARREGADO 🚀");
 
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
 const { google } = require('googleapis');
 
 const token = process.env.TOKEN;
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
@@ -31,10 +37,40 @@ bot.on('message', async (msg) => {
 
   if (!text) return;
 
-  if (text.toLowerCase() === "planilha") {
+  if (text.toLowerCase().startsWith("gastei")) {
 
-    console.log("📩 Recebeu PLANILHA");
+    const partes = text.split(" ");
+    const valor = parseFloat(partes[1]);
+    const descricao = partes.slice(2).join(" ");
 
+    if (isNaN(valor)) {
+      await bot.sendMessage(chatId, "Use: Gastei 50 mercado");
+      return;
+    }
+
+    const hoje = new Date();
+    const mes = hoje.getMonth() + 1;
+    const ano = hoje.getFullYear();
+    const data = hoje.toISOString().split("T")[0];
+
+    // ========================
+    // SALVAR NO SUPABASE
+    // ========================
+    const { error } = await supabase.from("despesas").insert([
+      { valor, descricao, data, mes, ano, categoria: "Manual" }
+    ]);
+
+    if (error) {
+      console.log("❌ Supabase:", error);
+      await bot.sendMessage(chatId, "Erro ao salvar no banco.");
+      return;
+    }
+
+    console.log("✅ Salvou no Supabase");
+
+    // ========================
+    // SALVAR NA PLANILHA
+    // ========================
     try {
 
       await sheets.spreadsheets.values.append({
@@ -42,30 +78,27 @@ bot.on('message', async (msg) => {
         range: "Dados!A:F",
         valueInputOption: "USER_ENTERED",
         requestBody: {
-          values: [[
-            "2026-02-26",
-            777,
-            "TESTE PLANILHA",
-            2,
-            2026,
-            "Teste"
-          ]]
+          values: [[data, valor, descricao, mes, ano, "Manual"]]
         }
       });
 
       console.log("✅ Salvou na planilha");
-      await bot.sendMessage(chatId, "✅ Salvou na planilha!");
 
-    } catch (error) {
+    } catch (sheetError) {
 
-      console.log("❌ ERRO PLANILHA:", error);
-      await bot.sendMessage(chatId, "❌ Erro na planilha.");
+      console.log("❌ Planilha:", sheetError);
+      await bot.sendMessage(chatId, "Salvou no banco, mas erro na planilha.");
+      return;
     }
+
+    await bot.sendMessage(chatId,
+      `✅ Registrado:\n\n💰 R$ ${valor.toFixed(2)}\n🏪 ${descricao}`
+    );
 
     return;
   }
 
-  await bot.sendMessage(chatId, "Digite: planilha");
+  await bot.sendMessage(chatId, "Digite: Gastei 50 mercado");
 });
 
 app.listen(process.env.PORT || 3000);
